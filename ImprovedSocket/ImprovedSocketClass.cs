@@ -118,24 +118,15 @@ namespace ImprovedSocket
             Recieve();
         }
 
-        private byte[] MessageComplete(byte[] message)
+        private byte[] MessageComplete(byte[] msg)
         {
-            byte[] result = new byte[2];
-            int messageLength = message.Length;
-            double messageZipLength = messageLength;
-            int count = 0;
-
-            while (messageZipLength > 255)
-            {
-                count += 1;
-                messageZipLength /= 255;
-            }
-
-            //Первый байт сжатая длина сообщения
-            //Второй байт кол-во сжатий длины сообщения
-            result[0] = (byte)messageZipLength;
-            result[1] = (byte)count;
-            return result.Concat(message).ToArray();
+            byte[] result = new byte[1];
+            string messageLength = msg.Length.ToString();
+            byte[] messageLengthBytes = messageLength.GetBytes();
+            result[0] = (byte)messageLengthBytes.Length;
+            result = result.Concat(messageLengthBytes).ToArray();
+            result = result.Concat(msg).ToArray();
+            return result;
         }
 
         private void Recieve()
@@ -149,29 +140,32 @@ namespace ImprovedSocket
                         byte[] message = new byte[0];
                         bool firstMessage = false;
                         int msgLength = 256;
+                        int msgLengthCount = 0;
                         int currLength = 0;
                         while (true)
                         {
-                            byte[] currData = new byte[256];
+                            byte[] currData = new byte[msgLength];
                             int currByteCount = selfSocket.Receive(currData);
                             message = message.Concat(currData).ToArray();
                             currLength += currByteCount;
                             if (!firstMessage)
                             {
-                                int msgZipLength = currData[0];
-                                int msgZipCout = currData[1];
-                                msgLength = msgZipCout == 0 ? msgZipLength : msgZipCout * msgZipLength;
+                                msgLengthCount = currData[0];
+                                msgLength = int.Parse(currData.Skip(1).Take(msgLengthCount).ToArray().GetString());
                                 firstMessage = true;
                             }
-                            if (currLength >= msgLength) break;
+                            if (currLength >= msgLength)
+                            {
+                                break;
+                            }
                         }
-                        newMessage?.Invoke(message.Skip(2).Take(msgLength).ToArray());
+                        newMessage?.Invoke(message.Skip(1 + msgLengthCount).Take(msgLength).ToArray());
                         firstMessage = false;
                     }
                 }
                 catch
                 {
-                    socketDisconnect(this);
+                    // socketDisconnect(this);
                 }
             });
             MessageListenThread.Start();
