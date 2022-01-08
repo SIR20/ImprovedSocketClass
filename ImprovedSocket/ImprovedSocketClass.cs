@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Text;
+using System.Linq;
 
 namespace ImprovedSocket
 {
@@ -17,12 +18,6 @@ namespace ImprovedSocket
         Server,
         Client
     }
-
-    public enum Message{
-        Begin = 1,
-        End = 0
-    }
-
     public sealed class ImprovedSocketClass
     {
         private Socket selfSocket;
@@ -123,17 +118,55 @@ namespace ImprovedSocket
             Recieve();
         }
 
+        private byte[] MessageComplete(byte[] message)
+        {
+            byte[] result = new byte[2];
+            int messageLength = message.Length;
+            double messageZipLength = messageLength;
+            int count = 0;
+
+            while (messageZipLength > 255)
+            {
+                count += 1;
+                messageZipLength /= 255;
+            }
+
+            //Первый байт сжатая длина сообщения
+            //Второй байт кол-во сжатий длины сообщения
+            result[0] = (byte)messageZipLength;
+            result[1] = (byte)count;
+            return result.Concat(message).ToArray();
+        }
+
         private void Recieve()
         {
             MessageListenThread = new Thread(() =>
             {
                 try
                 {
-                    byte[] data = new byte[256];
                     while (true)
                     {
-                        selfSocket.Receive(data);
-                        newMessage?.Invoke(data);
+                        byte[] message = new byte[0];
+                        bool firstMessage = false;
+                        int msgLength = 256;
+                        int currLength = 0;
+                        while (true)
+                        {
+                            byte[] currData = new byte[256];
+                            int currByteCount = selfSocket.Receive(currData);
+                            message = message.Concat(currData).ToArray();
+                            currLength += currByteCount;
+                            if (!firstMessage)
+                            {
+                                int msgZipLength = currData[0];
+                                int msgZipCout = currData[1];
+                                msgLength = msgZipCout == 0 ? msgZipLength : msgZipCout * msgZipLength;
+                                firstMessage = true;
+                            }
+                            if (currLength >= msgLength) break;
+                        }
+                        newMessage?.Invoke(message.Skip(2).Take(msgLength).ToArray());
+                        firstMessage = false;
                     }
                 }
                 catch
@@ -157,12 +190,11 @@ namespace ImprovedSocket
                         EndPoint remote_ip = new IPEndPoint(IPAddress.Any, 0);
                         selfSocket.ReceiveFrom(data, ref remote_ip);
                         newMessage?.Invoke(data);
-
                     }
                 }
                 catch
                 {
-                    socketDisconnect(null);
+                    socketDisconnect(this);
                 }
             });
             MessageListenThread.Start();
@@ -170,7 +202,7 @@ namespace ImprovedSocket
 
         public void Disconnect(bool reuseSocket) => selfSocket.Disconnect(reuseSocket);
         public void Close() => selfSocket.Close();
-        public int Send(byte[] msg) => selfSocket.Send(msg);
+        public int Send(byte[] msg) => selfSocket.Send(MessageComplete(msg));
         public int Send(string msg) => Send(msg.GetBytes());
         public int SendTo(byte[] msg, EndPoint remote_ip) => selfSocket.SendTo(msg, remote_ip);
         public int SendTo(string msg, EndPoint remote_ip) => SendTo(msg.GetBytes(), remote_ip);
