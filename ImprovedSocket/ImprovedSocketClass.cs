@@ -36,6 +36,9 @@ namespace ImprovedSocket
         public delegate void SocketHandler(ImprovedSocketClass improvedSocket);
         public event SocketHandler newConnect;
 
+        public delegate void SocketCloseHadnler(ImprovedSocketClass imprSocket);
+        public event SocketCloseHadnler socketDisconnect;
+
         public ImprovedSocketClass(ProgramStruct pStruct, ProtocolT pType)
         {
             _ProgramStruct = pStruct;
@@ -70,9 +73,6 @@ namespace ImprovedSocket
             if (_ProgramStruct == ProgramStruct.Client)
                 throw new Exception("Данный метод не предназначен для Клиента");
 
-            if (_ProtocolType == ProtocolT.UDP)
-                throw new Exception("Данный метод не предназначен для протокола UDP");
-
             selfSocket.Bind(endPoint);
             _EndPoint = endPoint;
             bindingFlag = true;
@@ -98,6 +98,7 @@ namespace ImprovedSocket
                     Socket client = selfSocket.Accept();
                     ImprovedSocketClass imprSocket = new ImprovedSocketClass(client);
                     newConnect?.Invoke(imprSocket);
+                    imprSocket.Recieve();
                 }
             });
             ConnectListenThread.Start();
@@ -110,28 +111,72 @@ namespace ImprovedSocket
 
             if (_ProtocolType == ProtocolT.UDP)
                 throw new Exception("Данный метод не предназначен для протокола UDP");
-
-            selfSocket.Connect(endPoint);
-            _EndPoint = endPoint;
+            try
+            {
+                selfSocket.Connect(endPoint);
+                _EndPoint = endPoint;
+            }
+            catch
+            {
+                throw new Exception("Не удалось подключиться");
+            }
+            Recieve();
         }
 
-        public void Recieve()
+        private void Recieve()
         {
             MessageListenThread = new Thread(() =>
             {
-                byte[] data = new byte[256];
-                while (true)
+                try
                 {
-                    selfSocket.Receive(data);
-                    newMessage?.Invoke(data);
+                    byte[] data = new byte[256];
+                    while (true)
+                    {
+                        selfSocket.Receive(data);
+                        newMessage?.Invoke(data);
+                    }
+                }
+                catch
+                {
+                    socketDisconnect(this);
                 }
             });
             MessageListenThread.Start();
         }
+
+        private void ReceiveFrom()
+        {
+
+            MessageListenThread = new Thread(() =>
+            {
+                try
+                {
+                    while (true)
+                    {
+                        byte[] data = new byte[256];
+                        EndPoint remote_ip = new IPEndPoint(IPAddress.Any, 0);
+                        selfSocket.ReceiveFrom(data, ref remote_ip);
+                        newMessage?.Invoke(data);
+
+                    }
+                }
+                catch
+                {
+                    socketDisconnect(null);
+                }
+            });
+            MessageListenThread.Start();
+        }
+
+        public void Disconnect(bool reuseSocket) => selfSocket.Disconnect(reuseSocket);
+        public void Close() => selfSocket.Close();
         public int Send(byte[] msg) => selfSocket.Send(msg);
         public int Send(string msg) => Send(msg.GetBytes());
+        public int SendTo(byte[] msg, EndPoint remote_ip) => selfSocket.SendTo(msg, remote_ip);
+        public int SendTo(string msg, EndPoint remote_ip) => SendTo(msg.GetBytes(), remote_ip);
 
         public int _ListenCount { get; set; } = 10;
+        public bool IsConnect { get; set; }
         public ProtocolT _ProtocolType { get; set; }
         public ProgramStruct _ProgramStruct { get; set; }
         public Socket _SelfSocket { get { return selfSocket; } }
