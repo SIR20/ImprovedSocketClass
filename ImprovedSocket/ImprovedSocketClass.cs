@@ -244,13 +244,13 @@ namespace ImprovedSocket
             get
             {
                 if (_ProtocolType == ProtocolT.TCP)
-                    throw new Exception("Это свойство приминимо только для UDP-протокола");
+                    throw new Exception("Это свойство применимо только для UDP-протокола");
                 return remoteEndPoint;
             }
             set
             {
                 if (_ProtocolType == ProtocolT.TCP)
-                    throw new Exception("Это свойство приминимо только для UDP-протокола");
+                    throw new Exception("Это свойство применимо только для UDP-протокола");
                 remoteEndPoint = value;
             }
         }
