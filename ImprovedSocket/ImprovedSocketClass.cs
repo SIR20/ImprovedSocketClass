@@ -18,12 +18,14 @@ namespace ImprovedSocket
         Server,
         Client
     }
+
     public sealed class ImprovedSocketClass
     {
         private Socket selfSocket;
         private Thread ConnectListenThread;
         private Thread MessageListenThread;
         private bool bindingFlag = false;
+        private EndPoint remoteEndPoint;
 
         public delegate void MessageHadnler(byte[] message);
         public event MessageHadnler newMessage;
@@ -70,6 +72,8 @@ namespace ImprovedSocket
 
             selfSocket.Bind(endPoint);
             _EndPoint = endPoint;
+            if (_ProtocolType == ProtocolT.UDP)
+                ReceiveFrom();
             bindingFlag = true;
 
         }
@@ -118,7 +122,7 @@ namespace ImprovedSocket
             Recieve();
         }
 
-        private byte[] MessageComplete(byte[] msg)
+        static byte[] MessageComplete(byte[] msg)
         {
             byte[] result = new byte[1];
             string messageLength = msg.Length.ToString();
@@ -180,10 +184,32 @@ namespace ImprovedSocket
                 {
                     while (true)
                     {
-                        byte[] data = new byte[256];
-                        EndPoint remote_ip = new IPEndPoint(IPAddress.Any, 0);
-                        selfSocket.ReceiveFrom(data, ref remote_ip);
-                        newMessage?.Invoke(data);
+                        byte[] message = new byte[0];
+                        bool firstMessage = false;
+                        int msgLength = 256;
+                        int msgLengthCount = 0;
+                        int currLength = 0;
+                        while (true)
+                        {
+                            byte[] currData = new byte[msgLength];
+                            EndPoint remoteIp = remoteEndPoint == null ? new IPEndPoint(IPAddress.Any, 0) : remoteEndPoint;
+                            int currByteCount = selfSocket.ReceiveFrom(currData, ref remoteIp);
+                            _RemoteEndPoint = remoteIp;
+                            message = message.Concat(currData).ToArray();
+                            currLength += currByteCount;
+                            if (!firstMessage)
+                            {
+                                msgLengthCount = currData[0];
+                                msgLength = int.Parse(currData.Skip(1).Take(msgLengthCount).ToArray().GetString());
+                                firstMessage = true;
+                            }
+                            if (currLength >= msgLength)
+                            {
+                                break;
+                            }
+                        }
+                        newMessage?.Invoke(message.Skip(1 + msgLengthCount).Take(msgLength).ToArray());
+                        firstMessage = false;
                     }
                 }
                 catch
@@ -198,7 +224,13 @@ namespace ImprovedSocket
         public void Close() => selfSocket.Close();
         public int Send(byte[] msg) => selfSocket.Send(MessageComplete(msg));
         public int Send(string msg) => Send(msg.GetBytes());
-        public int SendTo(byte[] msg, EndPoint remote_ip) => selfSocket.SendTo(msg, remote_ip);
+        public int SendTo(byte[] msg, EndPoint remote_ip)
+        {
+            _RemoteEndPoint = remote_ip;
+            int bCount = selfSocket.SendTo(MessageComplete(msg), remote_ip);
+            ReceiveFrom();
+            return bCount;
+        }
         public int SendTo(string msg, EndPoint remote_ip) => SendTo(msg.GetBytes(), remote_ip);
 
         public int _ListenCount { get; set; } = 10;
@@ -207,6 +239,21 @@ namespace ImprovedSocket
         public ProgramStruct _ProgramStruct { get; set; }
         public Socket _SelfSocket { get { return selfSocket; } }
         public EndPoint _EndPoint { get; set; }
+        public EndPoint _RemoteEndPoint
+        {
+            get
+            {
+                if (_ProtocolType == ProtocolT.TCP)
+                    throw new Exception("Это свойство приминимо только для UDP-протокола");
+                return remoteEndPoint;
+            }
+            set
+            {
+                if (_ProtocolType == ProtocolT.TCP)
+                    throw new Exception("Это свойство приминимо только для UDP-протокола");
+                remoteEndPoint = value;
+            }
+        }
     }
 
     public static class Extensions
